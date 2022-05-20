@@ -24,6 +24,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.speech.tts.TextToSpeech.QUEUE_ADD
+import android.support.v7.preference.PreferenceManager
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -140,12 +141,17 @@ class ReadFilesFragment : FileChooserFragment() {
         // Ensure this is only done once.
         event.requestCode = DIR_SELECT_CODE
 
+        // Determine output file type from shared preferences.
+        val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val useMp3 = prefs.getBoolean("pref_output_mp3_files",  false)
+        val outFileExt = if (useMp3) ".mp3" else ".wav"
+
         // Attempt to start file synthesis, asking the user for write permission if
         // necessary.
         val chosenFileEvent = activityInterface?.getLastFileChosenEvent() ?: return
         val directory = Directory.DocumentFile(event.firstUri)
         withStoragePermission { granted ->
-            synthesizeTextToFile(chosenFileEvent, directory, granted)
+            synthesizeTextToFile(chosenFileEvent, outFileExt, directory, granted)
         }
     }
 
@@ -177,13 +183,14 @@ class ReadFilesFragment : FileChooserFragment() {
     }
 
     private fun synthesizeTextToFile(event: ActivityEvent.ChosenFileEvent,
-                                     directory: Directory, storageAccess: Boolean) {
+                                     outFileExt: String, directory: Directory,
+                                     storageAccess: Boolean) {
         if (!storageAccess) {
             // Show a dialog if we don't have read/write storage permission.
             // and return here if permission is granted.
             val permissionBlock: (Boolean) -> Unit = { granted ->
                 if (granted) {
-                    synthesizeTextToFile(event, directory, granted)
+                    synthesizeTextToFile(event, outFileExt, directory, granted)
                 }
             }
             buildNoPermissionAlertDialog(permissionBlock).show()
@@ -195,9 +202,9 @@ class ReadFilesFragment : FileChooserFragment() {
         if (fileData.size == 0) {
             buildUnavailableFileAlertDialog(event.uriList).show()
         } else for ((uri, displayName) in fileData) {
-            val waveFilename = "$displayName.wav"
+            val outFilename = displayName + outFileExt
             val result = myApplication.enqueueFileSynthesisTasks(uri, directory,
-                    waveFilename)
+                    outFilename)
             when (result) {
                 UNAVAILABLE_INPUT_SRC ->
                     buildUnavailableFileAlertDialog(event.uriList).show()
@@ -228,18 +235,23 @@ class ReadFilesFragment : FileChooserFragment() {
             Directory.File(Environment.getExternalStorageDirectory())
         }
 
-        // Determine the names of the wave file and directory.
+        // Determine the names of the audio file and directory.
         val filename = event1.firstDisplayName
         val dirDisplayName: String = event2?.firstDisplayName
                 ?: getString(R.string.default_output_dir)
+
+        // Determine output file type from shared preferences.
+        val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val useMp3 = prefs.getBoolean("pref_output_mp3_files",  false)
+        val outFileExt = if (useMp3) ".mp3" else ".wav"
 
         // Build and display an appropriate alert dialog.
         AlertDialogBuilder(ctx).apply {
             title(R.string.write_to_file_alert_title)
             if (event1.displayNameList.size == 1) {
-                val waveFilename = "$filename.wav"
+                val outFilename = filename + outFileExt
                 message(getString(R.string.write_to_file_alert_message_1,
-                        filename, waveFilename, dirDisplayName))
+                        filename, outFilename, dirDisplayName))
             } else {
                 val fileCount = event1.displayNameList.size - 1
                 val fileWord = resources.getQuantityString(R.plurals.files,
@@ -250,7 +262,7 @@ class ReadFilesFragment : FileChooserFragment() {
             positiveButton(R.string.alert_positive_message_2) {
                 // Ask the user for write permission if necessary.
                 withStoragePermission { granted ->
-                    synthesizeTextToFile(event1, directory, granted)
+                    synthesizeTextToFile(event1, outFileExt, directory, granted)
                 }
             }
             negativeButton(R.string.alert_negative_message_2)

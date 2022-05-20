@@ -297,29 +297,14 @@ class ReadInputTask(ctx: Context, tts: TextToSpeech, inputStream: InputStream,
     }
 }
 
-class FileSynthesisTask(ctx: Context, tts: TextToSpeech,
-                        inputStream: InputStream, inputSize: Long,
-                        private val waveFilename: String,
-                        progressObserver: TaskProgressObserver) :
+abstract class FileSynthesisTask(ctx: Context, tts: TextToSpeech,
+                                 inputStream: InputStream, inputSize: Long,
+                                 protected val outFilename: String,
+                                 progressObserver: TaskProgressObserver) :
         TTSTask(ctx, tts, inputStream, inputSize,
                 TASK_ID_WRITE_FILE, progressObserver) {
 
-    var inWaveFiles = mutableListOf<File>()
-        private set
-
-    private fun enqueueFileSynthesis(text: String, bytesRead: Int) {
-        if (bytesRead == 0) return
-
-        // Create a wave file for this utterance.
-        val file = File.createTempFile("utt", "dat", app.cacheDir)
-
-        // Add *bytesRead* to the queue.
-        utteranceBytesQueue.add(bytesRead)
-
-        // Enqueue file synthesis.
-        val success = tts.synthesizeToFile(text, null, file, file.name)
-        if (success == SUCCESS) inWaveFiles.add(file)
-    }
+    abstract fun enqueueFileSynthesis(text: String, bytesRead: Int)
 
     override fun enqueueNextInput(): Boolean {
         // Have Android's TTS framework to synthesize the input into one or more
@@ -366,6 +351,43 @@ class FileSynthesisTask(ctx: Context, tts: TextToSpeech,
     }
 
     override fun finish(success: Boolean): Boolean {
+        // Display a toast message on failure.
+        if (!success) {
+            val messageId = R.string.write_to_file_message_failure
+            val message = app.getString(messageId, outFilename)
+            displayMessage(message, true)
+        }
+
+        // Call the super method.
+        return super.finish(success)
+    }
+}
+
+class WaveFileSynthesisTask(ctx: Context, tts: TextToSpeech,
+                            inputStream: InputStream, inputSize: Long,
+                            outFilename: String,
+                            progressObserver: TaskProgressObserver) :
+        FileSynthesisTask(ctx, tts, inputStream, inputSize, outFilename,
+                progressObserver) {
+
+    var inWaveFiles = mutableListOf<File>()
+        private set
+
+    override fun enqueueFileSynthesis(text: String, bytesRead: Int) {
+        if (bytesRead == 0) return
+
+        // Create a wave file for this utterance.
+        val file = File.createTempFile("utt", "dat", app.cacheDir)
+
+        // Add *bytesRead* to the queue.
+        utteranceBytesQueue.add(bytesRead)
+
+        // Enqueue file synthesis.
+        val success = tts.synthesizeToFile(text, null, file, file.name)
+        if (success == SUCCESS) inWaveFiles.add(file)
+    }
+
+    override fun finish(success: Boolean): Boolean {
         // If the TTS engine has produced impossibly short wave files, filter
         // them out.  These are typically empty files.
         // If file synthesis failed, delete all files instead.
@@ -374,14 +396,63 @@ class FileSynthesisTask(ctx: Context, tts: TextToSpeech,
             else if (!success && wf.isFile && wf.canWrite()) wf.delete()
         }
 
-        // Display a toast message on failure.
-        if (!success) {
-            val messageId = R.string.write_to_file_message_failure
-            val message = app.getString(messageId, waveFilename)
-            displayMessage(message, true)
-        }
-
         // Call the super method.
         return super.finish(success)
+    }
+}
+
+class Mp3FileSynthesisTask(ctx: Context, tts: TextToSpeech,
+                           inputStream: InputStream, inputSize: Long,
+                           outFilename: String,
+                           private val outputStream: OutputStream,
+                           progressObserver: TaskProgressObserver) :
+        FileSynthesisTask(ctx, tts, inputStream, inputSize, outFilename,
+                progressObserver) {
+
+    override fun enqueueFileSynthesis(text: String, bytesRead: Int) {
+        if (bytesRead == 0) return
+
+        // Use a special file for storing generated data.  This file is deliberately
+        // overwritten each time: the class utilises the onBeginSynthesis() and
+        // onAudioAvailable() callbacks to process audio and audio parameters.
+        val file = File(app.cacheDir, "temp_mp3.dat")
+
+        // Add *bytesRead* to the queue.
+        utteranceBytesQueue.add(bytesRead)
+
+        // Enqueue file synthesis.
+        tts.synthesizeToFile(text, null, file, file.name)
+    }
+
+    override fun onBeginSynthesis(utteranceId: String?, sampleRateInHz: Int,
+                                  audioFormat: Int, channelCount: Int) {
+        super.onBeginSynthesis(utteranceId, sampleRateInHz, audioFormat,
+                channelCount)
+
+        // TODO
+    }
+
+    override fun onAudioAvailable(utteranceId: String?, audio: ByteArray?) {
+        super.onAudioAvailable(utteranceId, audio)
+        if (audio == null) return
+
+        // TODO
+    }
+
+    override fun finish(success: Boolean): Boolean {
+        // Delete the temporary data file.
+        val file = File(app.cacheDir, "temp_mp3.dat")
+        file.delete()
+
+        // Display a message on success.  (Failure is handled by the super class.)
+//        if (success) {
+//            val messageId = R.string.write_to_file_message_success
+//            val message = app.getString(messageId, outFilename)
+//            displayMessage(message, true)
+//        }
+
+        // Call the super method.
+        // FIXME
+        return super.finish(false)
     }
 }

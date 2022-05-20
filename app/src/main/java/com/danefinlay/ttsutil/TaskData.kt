@@ -28,8 +28,10 @@ sealed class TaskData(var taskId: Int, var progress: Int) {
     class FileSynthesisTaskData(taskId: Int, progress: Int,
                                 val inputSource: InputSource,
                                 val outDirectory: Directory,
-                                val waveFilename: String) :
-            TaskData(taskId, progress)
+                                val outFilename: String) :
+            TaskData(taskId, progress) {
+        val hasWaveOutputFile: Boolean = outFilename.endsWith(".wav")
+    }
     class JoinWaveFilesTaskData(taskId: Int, progress: Int,
                                 val outDirectory: Directory,
                                 val waveFilename: String) :

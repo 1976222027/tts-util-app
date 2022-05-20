@@ -55,6 +55,9 @@ class SettingsFragment : PreferenceFragmentCompat(), FragmentInterface {
         // Handle TTS engine preferences.
         if (handleTtsEnginePrefs(preference)) return true
 
+        // Handle File preferences.
+        if (handleFilePrefs(preference)) return true
+
         return super.onPreferenceTreeClick(preference)
     }
 
@@ -477,5 +480,15 @@ class SettingsFragment : PreferenceFragmentCompat(), FragmentInterface {
                 .setCancelButton(onCancel)
         builder.show()
         return true
+    }
+
+    private fun handleFilePrefs(preference: Preference?): Boolean {
+        val key = preference?.key
+
+        // Handle setting preferences.
+        return when (key) {
+            "pref_output_mp3_files" -> true
+            else -> false  // not a file preference.
+        }
     }
 }

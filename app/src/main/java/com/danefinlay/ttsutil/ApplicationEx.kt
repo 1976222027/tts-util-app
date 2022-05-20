@@ -553,12 +553,25 @@ class ApplicationEx : Application(), OnInitListener {
 
         // Verify that the out directory exists.  Return early if it does not.
         val outDirectory = taskData.outDirectory
-        val waveFilename = taskData.waveFilename
+        val outFilename = taskData.outFilename
         if (!outDirectory.exists(this)) return UNAVAILABLE_OUT_DIR
 
-        // Initialize the task, begin it asynchronously and return.
-        val task = FileSynthesisTask(this, tts, inputStream, inputSize,
-                waveFilename, asyncProgressObserver)
+        // Initialize the appropriate task.
+        val task: FileSynthesisTask
+        if (taskData.hasWaveOutputFile) {
+            task = WaveFileSynthesisTask(this, tts, inputStream, inputSize,
+                    outFilename, asyncProgressObserver)
+        } else {
+            // Use the out directory to create and open an output stream on the
+            // specified document.  Return early if this is not possible.
+            val outputStream = outDirectory.openDocumentOutputStream(this,
+                    outFilename, "audio/mpeg") ?: return UNAVAILABLE_OUT_DIR
+
+            task = Mp3FileSynthesisTask(this, tts, inputStream, inputSize,
+                    outFilename, outputStream, asyncProgressObserver)
+        }
+
+        // Begin the task asynchronously and return.
         currentTask = task
         userTaskExecService.submit { task.begin() }
         return SUCCESS
@@ -571,7 +584,7 @@ class ApplicationEx : Application(), OnInitListener {
 
         // Check that the wave file list from the previous task is available.
         val previousTask = currentTask
-        if (previousTask !is FileSynthesisTask) return FAILURE
+        if (previousTask !is WaveFileSynthesisTask) return FAILURE
 
         // Use the out directory to create and open an output stream on the
         // specified document.  Return early if this is not possible.
@@ -606,7 +619,8 @@ class ApplicationEx : Application(), OnInitListener {
             if (result != SUCCESS) {
                 val taskCount = when (taskData) {
                     is TaskData.ReadInputTaskData -> 1
-                    is TaskData.FileSynthesisTaskData -> 2
+                    is TaskData.FileSynthesisTaskData ->
+                        if (taskData.hasWaveOutputFile) 2 else 1
                     is TaskData.JoinWaveFilesTaskData -> 1
                 }
                 for (i in 0 until taskCount) taskQueue.pop()
@@ -647,7 +661,7 @@ class ApplicationEx : Application(), OnInitListener {
     }
 
     fun enqueueFileSynthesisTasks(inputSource: InputSource, outDirectory: Directory,
-                                  waveFilename: String): Int {
+                                  outFilename: String): Int {
         // Do not continue unless TTS is ready.
         if (!ttsReady || mTTS == null) return TTS_NOT_READY
 
@@ -657,14 +671,17 @@ class ApplicationEx : Application(), OnInitListener {
 
         // Encapsulate the file synthesis task data and add it to the queue.
         val taskData1 = TaskData.FileSynthesisTaskData(TASK_ID_WRITE_FILE, 0,
-                inputSource, outDirectory, waveFilename)
+                inputSource, outDirectory, outFilename)
         taskQueue.add(taskData1)
 
-        // TODO Handle creation of MP3 files here with a separate task.
-        // Encapsulate the join wave files task data and add it to the queue.
-        val taskData2 = TaskData.JoinWaveFilesTaskData(TASK_ID_PROCESS_FILE, 0,
-                outDirectory, waveFilename)
-        taskQueue.add(taskData2)
+        // If the output filename ends with ".wav", then encapsulate the join wave
+        // files task data and add it to the queue.
+        // Note: A second task is unnecessary for MP3 output files.
+        if (outFilename.endsWith(".wav")) {
+            val taskData2 = TaskData.JoinWaveFilesTaskData(TASK_ID_PROCESS_FILE,
+                    0, outDirectory, outFilename)
+            taskQueue.add(taskData2)
+        }
 
         // Process the task if it is at the head of the queue.  Otherwise, notify
         // progress observers.
@@ -677,9 +694,9 @@ class ApplicationEx : Application(), OnInitListener {
     }
 
     fun enqueueFileSynthesisTasks(text: String, outDirectory: Directory,
-                                  waveFilename: String): Int {
+                                  outFilename: String): Int {
         val inputSource = InputSource.String(text)
-        return enqueueFileSynthesisTasks(inputSource, outDirectory, waveFilename)
+        return enqueueFileSynthesisTasks(inputSource, outDirectory, outFilename)
     }
 
     fun enqueueReadInputTask(contentUri: Uri?, queueMode: Int): Int {
@@ -688,9 +705,9 @@ class ApplicationEx : Application(), OnInitListener {
     }
 
     fun enqueueFileSynthesisTasks(contentUri: Uri?, outDirectory: Directory,
-                                  waveFilename: String): Int {
+                                  outFilename: String): Int {
         val inputSource = InputSource.ContentUri(contentUri)
-        return enqueueFileSynthesisTasks(inputSource, outDirectory, waveFilename)
+        return enqueueFileSynthesisTasks(inputSource, outDirectory, outFilename)
     }
 
     override fun onLowMemory() {

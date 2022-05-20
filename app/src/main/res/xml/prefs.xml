@@ -21,7 +21,8 @@
 
 <PreferenceScreen
     xmlns:android="http://schemas.android.com/apk/res/android"
-    android:title="@string/settings_fragment_label" >
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:title="@string/settings_fragment_label">
 
     <PreferenceCategory
         android:title="@string/pref_tts_engine_category" >
@@ -55,6 +56,17 @@
             android:title="@string/pref_tts_system_settings"
             android:summary="@string/pref_tts_system_settings_summary"
             android:icon="@android:drawable/ic_menu_preferences" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:title="@string/pref_file_category">
+
+        <SwitchPreference
+            android:key="pref_output_mp3_files"
+            app:title="@string/pref_output_mp3_files"
+            android:summary="@string/pref_output_mp3_files_summary"
+            android:icon="@drawable/ic_baseline_audio_file_24" />
 
     </PreferenceCategory>
 
