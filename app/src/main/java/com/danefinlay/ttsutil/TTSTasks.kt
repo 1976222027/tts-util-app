@@ -27,8 +27,10 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.TextToSpeech.*
 import android.speech.tts.UtteranceProgressListener
 import android.support.annotation.CallSuper
+import android.util.Log
 import org.jetbrains.anko.*
 import java.io.*
+import java.nio.IntBuffer
 
 abstract class MyUtteranceProgressListener(ctx: Context, val tts: TextToSpeech) :
         UtteranceProgressListener() {
@@ -409,13 +411,16 @@ class Mp3FileSynthesisTask(ctx: Context, tts: TextToSpeech,
         FileSynthesisTask(ctx, tts, inputStream, inputSize, outFilename,
                 progressObserver) {
 
+    private val lameInterface by lazy { LameInterface() }
+    private val tempOutFile by lazy { File(app.cacheDir, "temp_mp3.dat") }
+
     override fun enqueueFileSynthesis(text: String, bytesRead: Int) {
         if (bytesRead == 0) return
 
         // Use a special file for storing generated data.  This file is deliberately
-        // overwritten each time: the class utilises the onBeginSynthesis() and
-        // onAudioAvailable() callbacks to process audio and audio parameters.
-        val file = File(app.cacheDir, "temp_mp3.dat")
+        // overwritten each time to save disk space; MP3 frames, unlike WAVE data,
+        // can simply be concatenated to the output stream.
+        val file = tempOutFile
 
         // Add *bytesRead* to the queue.
         utteranceBytesQueue.add(bytesRead)
@@ -424,35 +429,83 @@ class Mp3FileSynthesisTask(ctx: Context, tts: TextToSpeech,
         tts.synthesizeToFile(text, null, file, file.name)
     }
 
-    override fun onBeginSynthesis(utteranceId: String?, sampleRateInHz: Int,
-                                  audioFormat: Int, channelCount: Int) {
-        super.onBeginSynthesis(utteranceId, sampleRateInHz, audioFormat,
-                channelCount)
+    override fun onDone(utteranceId: String?) {
+        // Read the wave file header of temp_mp3.dat.
+        val wf = WaveFile(FileInputStream(tempOutFile).buffered())
+        val wfHeader = wf.header
 
-        // TODO
-    }
+        // Determine and set the appropriate LAME encoder parameters.
+        val sampleRate = wfHeader.fmtSubChunk.sampleRate
+        val numChannels = wfHeader.fmtSubChunk.numChannels.toInt()
+        val bitsPerSample = wfHeader.fmtSubChunk.bitsPerSample
+        val dataSubChunkSize = wfHeader.dataSubChunk.ckSize
+        val numSamples = dataSubChunkSize / (numChannels * bitsPerSample / 8)
+        lameInterface.setInSampleRate(sampleRate)
+        lameInterface.setNumChannels(numChannels)
+        lameInterface.setNumSamples(numSamples)
 
-    override fun onAudioAvailable(utteranceId: String?, audio: ByteArray?) {
-        super.onAudioAvailable(utteranceId, audio)
-        if (audio == null) return
+        // Set quality to high.
+        lameInterface.setQuality(2)
 
-        // TODO
+        // Guard against multi-channel audio data, which we do not support.
+        var success = numChannels == 1
+
+        // Initialize LAME parameters.  If successful, encode the audio.
+        success = success && lameInterface.initParams() == 0
+        if (success) {
+            // Prepare audio channel arrays.
+            // Note: The right channel is purposefully left empty.
+            val buffer = IntBuffer.allocate(dataSubChunkSize)
+            wf.readDataChunk { byte -> buffer.put(byte) }
+            val leftPcm = buffer.array()
+            val rightPcm = IntArray(0)
+
+            // Estimate the size of the MP3 buffer and allocate it.
+            val mp3BufferSize = (1.25 * numSamples + 7200.0).toInt()
+            val mp3Buffer = CharArray(mp3BufferSize)
+
+            // Attempt to encode the PCM data to MP3 format.
+            Log.e(TAG, "Begin MP3 encoding.")
+            val result = lameInterface.encodeBuffer(leftPcm, rightPcm, mp3Buffer)
+            success = result >= 0
+            Log.e(TAG, "End MP3 encoding.")
+
+            // If successful, write the resultant bytes to the output stream.
+            if (success) {
+                for (i in 0..result) {
+                    // Log.e(TAG, "byte $i: ${mp3Buffer[i].toInt()}")
+                    outputStream.write(mp3Buffer[i].toInt())
+                }
+                Log.e(TAG, "$result bytes written to output stream.")
+            }
+        }
+
+        // Finalize if something went wrong.  This indicates failure to the super
+        // class.
+        if (!success) finalize()
+
+        // Call the super method.
+        super.onDone(utteranceId)
     }
 
     override fun finish(success: Boolean): Boolean {
+        // Free LAME interface resources.
+        lameInterface.free()
+
         // Delete the temporary data file.
-        val file = File(app.cacheDir, "temp_mp3.dat")
-        file.delete()
+        tempOutFile.delete()
+
+        // Close the output stream.
+        outputStream.close()
 
         // Display a message on success.  (Failure is handled by the super class.)
-//        if (success) {
-//            val messageId = R.string.write_to_file_message_success
-//            val message = app.getString(messageId, outFilename)
-//            displayMessage(message, true)
-//        }
+        if (success) {
+            val messageId = R.string.write_to_file_message_success
+            val message = app.getString(messageId, outFilename)
+            displayMessage(message, true)
+        }
 
         // Call the super method.
-        // FIXME
-        return super.finish(false)
+        return super.finish(success)
     }
 }

@@ -57,6 +57,7 @@ class AboutActivity : MyAppCompatActivity() {
         find<TextView>(R.id.about_app).setLinkText(aboutApp)
 
         // Set each acknowledgement text and link.
+        // TODO Add acknowledgement text, link and license for the LAME MP3 encoder.
         setAckText(R.id.about_ack_material_design_icons,
                 R.string.about_ack_material_design_icons,
                 R.string.link_material_design_icons, apache2)

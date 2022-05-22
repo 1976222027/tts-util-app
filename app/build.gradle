@@ -11,6 +11,11 @@ android {
         targetSdkVersion 28
         versionCode 5
         versionName "3.0.0"
+        externalNativeBuild {
+            cmake {
+                cppFlags ''
+            }
+        }
     }
 
     lintOptions {
@@ -24,6 +29,13 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    externalNativeBuild {
+        cmake {
+            path file('src/main/cpp/CMakeLists.txt')
+            version '3.10.2'
+        }
+    }
+    ndkVersion '24.0.8215888'
 }
 
 dependencies {
